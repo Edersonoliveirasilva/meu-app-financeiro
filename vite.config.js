@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   // Nome exato da pasta/repositório
-  base: '/meu-app-financeiro/', 
+base: '/'
   plugins: [
     react(),
     VitePWA({
