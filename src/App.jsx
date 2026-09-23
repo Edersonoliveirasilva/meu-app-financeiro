@@ -22,9 +22,68 @@ export default function App() {
   const balance = totalIncome - totalExpense;
 
   // Função de Autenticação
-  const handleUnlock = () => {
-    setIsAuthenticated(true);
+ // Função de Autenticação Real (WebAuthn / FaceID / TouchID)
+  const handleUnlock = async () => {
+    try {
+      // Verifica se o aparelho tem leitor biométrico suportado
+      if (window.PublicKeyCredential) {
+        const isSupported = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        
+        if (isSupported) {
+          const isRegistered = localStorage.getItem('nexus_biometria');
+          
+          if (!isRegistered) {
+            // PRIMEIRO ACESSO: Regista o rosto/dedo do utilizador
+            const publicKey = {
+              challenge: new Uint8Array(32),
+              rp: { name: "NexusFin", id: window.location.hostname },
+              user: { 
+                id: new Uint8Array(16), 
+                name: "admin", 
+                displayName: "Dono do Aparelho" 
+              },
+              pubKeyCredParams: [{ type: "public-key", alg: -7 }], // Criptografia ES256
+              authenticatorSelection: { 
+                authenticatorAttachment: "platform", 
+                userVerification: "required" 
+              },
+              timeout: 60000
+            };
+            
+            await navigator.credentials.create({ publicKey });
+            localStorage.setItem('nexus_biometria', 'true');
+            setIsAuthenticated(true);
+            return;
+          } else {
+            // PRÓXIMOS ACESSOS: Pede o FaceID para desbloquear
+            const publicKey = {
+              challenge: new Uint8Array(32),
+              rpId: window.location.hostname,
+              userVerification: "required",
+              timeout: 60000
+            };
+            
+            await navigator.credentials.get({ publicKey });
+            setIsAuthenticated(true);
+            return;
+          }
+        }
+      }
+      
+      // FALLBACK: Se estiver num PC sem leitor de impressão digital
+      const pin = prompt("Biometria não detetada. Digite o PIN de segurança (Padrão: 1234):");
+      if (pin === "1234") {
+        setIsAuthenticated(true);
+      } else {
+        alert("PIN Incorreto.");
+      }
+      
+    } catch (error) {
+      console.error("Erro biométrico:", error);
+      alert("Autenticação cancelada ou falhou.");
+    }
   };
+  
 
   const handleAddTransaction = async (e) => {
     e.preventDefault();
