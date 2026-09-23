@@ -69,7 +69,7 @@ export default function App() {
 
   const handleConnectBank = async () => {
     try {
-      const response = await fetch('http://localhost:3000/api/token');
+      const response = await fetch('[https://nexus-backend-fv9d.onrender.com/api/token](https://nexus-backend-fv9d.onrender.com/api/token)')
       if (!response.ok) throw new Error("Erro no servidor");
       const data = await response.json();
       setPluggyToken(data.accessToken);
@@ -172,7 +172,7 @@ export default function App() {
             setPluggyToken(''); 
             
             try {
-              const response = await fetch(`http://localhost:3000/api/transactions/${itemId}`);
+              const response = await fetch(`https://nexus-backend-fv9d.onrender.com/api/transactions/${itemId}`);
               
               if (!response.ok) {
                  const errData = await response.json();
