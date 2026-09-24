@@ -69,8 +69,7 @@ export default function App() {
 
   const handleConnectBank = async () => {
     try {
-      const response = await fetch('[https://nexus-backend-fv9d.onrender.com/api/token](https://nexus-backend-fv9d.onrender.com/api/token)');
-      if (!response.ok) throw new Error("Erro no servidor");
+      const response = await fetch('https://nexus-backend-fv9d.onrender.com/api/token');
       const data = await response.json();
       setPluggyToken(data.accessToken);
     } catch (error) {
