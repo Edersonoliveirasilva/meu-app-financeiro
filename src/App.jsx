@@ -311,7 +311,7 @@ export default function App() {
         <PluggyConnect
           connectToken={pluggyToken}
           includesSandbox={false} // <--- AQUI: AGORA USA CONTAS REAIS!
-          onSuccess={async (itemData) => {
+          onSucess={async (itemData) => {
             try {
               const response = await fetch(`https://nexus-backend-fv9d.onrender.com/api/transactions/${itemData.item.id}`);
               if (!response.ok) throw new Error();
