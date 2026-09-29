@@ -239,6 +239,18 @@ export default function App() {
     reader.readAsText(file, "windows-1252");
   };
 
+  // Botão para Resetar a Base de Dados
+  const handleClearDatabase = async () => {
+    const confirmar = window.confirm(
+      "Tem certeza que deseja apagar TODOS os dados do NexusFin? Esta ação não pode ser desfeita.",
+    );
+    if (confirmar) {
+      await db.transactions.clear();
+      setTransactions([]);
+      alert("Base de dados resetada com sucesso!");
+    }
+  };
+
   const uniqueCategories = useMemo(
     () => ["Todas", ...new Set(transactions.map((t) => t.category))],
     [transactions],
