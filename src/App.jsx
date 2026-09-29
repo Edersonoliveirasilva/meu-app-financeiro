@@ -65,61 +65,86 @@ export default function App() {
     return 'Outros Gastos';
   };
 
-  const handleImportCSV = (event) => {
+ const handleImportCSV = (event) => {
     const file = event.target.files[0];
     if (!file) return;
+
     const reader = new FileReader();
+    
+    // Usamos 'windows-1252' para o sistema conseguir ler os acentos (ç, ã) dos bancos tradicionais
     reader.onload = async (e) => {
       try {
         const text = e.target.result;
         const lines = text.split('\n').filter(line => line.trim() !== '');
         const newTransactions = [];
 
+        // Inteligência: O sistema lê a 1ª linha para detetar automaticamente de que banco é o CSV
+        const isBancoDoBrasil = lines[0].includes('Tipo Lançamento') || lines[0].includes('Lançamento');
+
         for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(',');
-          if (cols.length >= 3) {
-            const dataStr = cols[0].trim(); 
-            const valor = parseFloat(cols[1]); 
-            const descricao = cols[cols.length - 1].replace(/"/g, '').trim(); 
+          const line = lines[i];
+          
+          // Novo corte inteligente: separa por vírgulas, mas ignora vírgulas dentro de aspas (como nos valores "-1.900,00")
+          const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(col => col.replace(/(^"\vert{}"$)/g, '').trim());
 
-            if (isNaN(valor)) continue;
+          if (cols.length < 3) continue;
 
-            let [dia, mes, ano] = dataStr.split('/');
-            if (dia.length === 4) [ano, mes, dia] = dataStr.split('-'); 
-            const txDate = new Date(ano, mes - 1, dia);
+          let dataStr, valorStr, descricao;
 
-            newTransactions.push({
-              type: valor < 0 ? 'expense' : 'income',
-              amount: Math.abs(valor),
-              description: descricao,
-              category: autoCategorize(descricao, valor),
-              date: txDate.toISOString(),
-              timeString: 'Via CSV',
-              timestamp: txDate.getTime()
-            });
+          if (isBancoDoBrasil) {
+            // Ignorar as linhas de "Saldo" que o BB mistura no extrato para não duplicar entradas
+            if (cols[1].includes('Saldo Anterior') || cols[1].includes('Saldo do dia')) continue; 
+            
+            dataStr = cols[0]; // "08/09/2026"
+            // Junta a ação com o nome do recebedor (Ex: "Pix Enviado - HOTMART")
+            descricao = cols[2] !== '' ? `${cols[1]} - ${cols[2]}` : cols[1];
+            valorStr = cols[4]; // "-47,00" ou "2.401,04"
+          } else {
+            // Lógica original mantida intacta para o Nubank
+            dataStr = cols[0];
+            valorStr = cols[1];
+            descricao = cols[cols.length - 1];
           }
+
+          if (!valorStr) continue;
+
+          // Conversão de dinheiro: Se for formato PT-BR (1.900,00), converte para formato de cálculo de sistema (1900.00)
+          let valorTratado = valorStr;
+          if (valorTratado.includes(',')) {
+            valorTratado = valorTratado.replace(/\./g, '').replace(',', '.');
+          }
+          const valor = parseFloat(valorTratado);
+
+          if (isNaN(valor) || valor === 0) continue;
+
+          let [dia, mes, ano] = dataStr.split('/');
+          if (dia.length === 4) [ano, mes, dia] = dataStr.split('-'); 
+          const txDate = new Date(ano, mes - 1, dia);
+
+          newTransactions.push({
+            type: valor < 0 ? 'expense' : 'income',
+            amount: Math.abs(valor),
+            description: descricao,
+            category: autoCategorize(descricao, valor),
+            date: txDate.toISOString(),
+            timeString: isBancoDoBrasil ? 'CSV BB' : 'CSV Nubank',
+            timestamp: txDate.getTime()
+          });
         }
+
         await db.transactions.bulkAdd(newTransactions);
         alert(`Sucesso! ${newTransactions.length} transações importadas.`);
         event.target.value = '';
         loadData(); 
       } catch (error) {
         console.error("Erro CSV:", error);
-        alert("Erro ao importar CSV.");
+        alert("Erro ao importar CSV. Verifique se o formato é suportado.");
       }
     };
-    reader.readAsText(file);
-  };
-
-  // Botão para Resetar a Base de Dados
-  const handleClearDatabase = async () => {
-    const confirmar = window.confirm("Tem certeza que deseja apagar TODOS os dados do NexusFin? Esta ação não pode ser desfeita.");
-    if (confirmar) {
-      await db.transactions.clear();
-      setTransactions([]);
-      alert("Base de dados resetada com sucesso!");
-    }
-  };
+    
+    // Inicia a leitura do ficheiro
+    reader.readAsText(file, 'windows-1252');
+  }; 
 
   const uniqueCategories = useMemo(() => ['Todas', ...new Set(transactions.map(t => t.category))], [transactions]);
 
