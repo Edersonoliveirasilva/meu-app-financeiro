@@ -50,7 +50,6 @@ export default function App() {
     "#a855f7",
     "#ec4899",
   ];
-  const COLORS_INCOME = ["#10B981", "#34D399", "#059669", "#047857", "#065F46"];
 
   const loadData = async () => {
     const allTx = await db.transactions.toArray();
@@ -150,20 +149,19 @@ export default function App() {
     return "Outros Gastos";
   };
 
+  // Função Inteligente de Importação de CSV (Suporta Nubank e Banco do Brasil)
   const handleImportCSV = (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
 
-    // Usamos 'windows-1252' para o sistema conseguir ler os acentos (ç, ã) dos bancos tradicionais
     reader.onload = async (e) => {
       try {
         const text = e.target.result;
         const lines = text.split("\n").filter((line) => line.trim() !== "");
         const newTransactions = [];
 
-        // Inteligência: O sistema lê a 1ª linha para detetar automaticamente de que banco é o CSV
         const isBancoDoBrasil =
           lines[0].includes("Tipo Lançamento") ||
           lines[0].includes("Lançamento");
@@ -171,7 +169,7 @@ export default function App() {
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i];
 
-          // Novo corte inteligente: separa por vírgulas, mas ignora vírgulas dentro de aspas (como nos valores "-1.900,00")
+          // Regex corrigido para separar por vírgulas sem quebrar
           const cols = line
             .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
             .map((col) => col.replace(/(^"\vert{}"$)/g, "").trim());
@@ -181,19 +179,15 @@ export default function App() {
           let dataStr, valorStr, descricao;
 
           if (isBancoDoBrasil) {
-            // Ignorar as linhas de "Saldo" que o BB mistura no extrato para não duplicar entradas
             if (
               cols[1].includes("Saldo Anterior") ||
               cols[1].includes("Saldo do dia")
             )
               continue;
-
-            dataStr = cols[0]; // "08/09/2026"
-            // Junta a ação com o nome do recebedor (Ex: "Pix Enviado - HOTMART")
+            dataStr = cols[0];
             descricao = cols[2] !== "" ? `${cols[1]} - ${cols[2]}` : cols[1];
-            valorStr = cols[4]; // "-47,00" ou "2.401,04"
+            valorStr = cols[4];
           } else {
-            // Lógica original mantida intacta para o Nubank
             dataStr = cols[0];
             valorStr = cols[1];
             descricao = cols[cols.length - 1];
@@ -201,7 +195,6 @@ export default function App() {
 
           if (!valorStr) continue;
 
-          // Conversão de dinheiro: Se for formato PT-BR (1.900,00), converte para formato de cálculo de sistema (1900.00)
           let valorTratado = valorStr;
           if (valorTratado.includes(",")) {
             valorTratado = valorTratado.replace(/\./g, "").replace(",", ".");
@@ -235,7 +228,6 @@ export default function App() {
       }
     };
 
-    // Inicia a leitura do ficheiro
     reader.readAsText(file, "windows-1252");
   };
 
@@ -256,7 +248,7 @@ export default function App() {
     [transactions],
   );
 
-  // Lógica de Filtros Expandida (com 7 e 15 dias)
+  // Lógica de Filtros Expandida
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;
     const agora = new Date().getTime();
@@ -304,7 +296,6 @@ export default function App() {
   const saldoAtual = entradas - saidas;
   const margem = entradas > 0 ? ((saldoAtual / entradas) * 100).toFixed(1) : 0;
 
-  // Lógica para colorir saldo negativo/positivo
   const saldoColorClass = saldoAtual < 0 ? "text-rose-500" : "text-emerald-400";
   const marginColorClass =
     saldoAtual < 0
