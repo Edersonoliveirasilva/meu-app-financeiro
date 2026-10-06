@@ -1,14 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Dexie from "dexie";
-import { PluggyConnect } from "react-pluggy-connect";
 import {
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -26,18 +23,13 @@ db.version(1).stores({
 
 export default function App() {
   const [transactions, setTransactions] = useState([]);
-  const [pluggyToken, setPluggyToken] = useState("");
   const [activeTab, setActiveTab] = useState("dashboard");
-
-  // Estado de Privacidade (Ocultar Valores)
   const [showValues, setShowValues] = useState(true);
 
   // Filtros
-  const [filterType, setFilterType] = useState("Todas as Operações");
-  const [filterDate, setFilterDate] = useState("Últimos 30 dias");
+  const [filterDate, setFilterDate] = useState("Este Mês");
   const [filterCategory, setFilterCategory] = useState("Todas");
 
-  // Cores BI
   const COLORS_EXPENSE = [
     "#e11d48",
     "#f43f5e",
@@ -61,7 +53,6 @@ export default function App() {
     loadData();
   }, []);
 
-  // Função Auxiliar para Mascarar Valores
   const formatMoney = (value) => {
     if (!showValues) return "••••••";
     return value.toLocaleString("pt-BR", {
@@ -87,7 +78,6 @@ export default function App() {
       )
         return "Rendimentos";
       if (d.includes("pix")) return "PIX Recebido";
-      if (d.includes("estorno") || d.includes("reembolso")) return "Reembolsos";
       return "Outras Receitas";
     }
     if (
@@ -96,8 +86,7 @@ export default function App() {
       d.includes("ifood") ||
       d.includes("restaurante") ||
       d.includes("padaria") ||
-      d.includes("assai") ||
-      d.includes("atacadao")
+      d.includes("assai")
     )
       return "Alimentação";
     if (
@@ -105,8 +94,7 @@ export default function App() {
       d.includes("uber") ||
       d.includes("99") ||
       d.includes("gasolina") ||
-      d.includes("estacionamento") ||
-      d.includes("pedágio")
+      d.includes("estacionamento")
     )
       return "Transporte";
     if (
@@ -118,15 +106,13 @@ export default function App() {
       d.includes("netflix") ||
       d.includes("spotify")
     )
-      return "Assinaturas/Telefonia";
+      return "Assinaturas";
     if (
       d.includes("energia") ||
       d.includes("água") ||
       d.includes("luz") ||
       d.includes("condomínio") ||
-      d.includes("iptu") ||
-      d.includes("cpfl") ||
-      d.includes("sabesp")
+      d.includes("iptu")
     )
       return "Contas Casa";
     if (d.includes("pix")) return "PIX Enviado";
@@ -139,37 +125,26 @@ export default function App() {
       d.includes("unimed")
     )
       return "Saúde";
-    if (
-      d.includes("imposto") ||
-      d.includes("taxa") ||
-      d.includes("tarifa") ||
-      d.includes("iof")
-    )
-      return "Taxas/Impostos";
     return "Outros Gastos";
   };
 
-  // Função Inteligente de Importação de CSV (Suporta Nubank e Banco do Brasil)
+  // Importação CSV Inteligente (Nubank e BB)
   const handleImportCSV = (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
-
     reader.onload = async (e) => {
       try {
         const text = e.target.result;
         const lines = text.split("\n").filter((line) => line.trim() !== "");
         const newTransactions = [];
-
         const isBancoDoBrasil =
           lines[0].includes("Tipo Lançamento") ||
           lines[0].includes("Lançamento");
 
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i];
-
-          // Regex corrigido para separar por vírgulas sem quebrar
           const cols = line
             .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
             .map((col) => col.replace(/(^"\vert{}"$)/g, "").trim());
@@ -200,7 +175,6 @@ export default function App() {
             valorTratado = valorTratado.replace(/\./g, "").replace(",", ".");
           }
           const valor = parseFloat(valorTratado);
-
           if (isNaN(valor) || valor === 0) continue;
 
           let [dia, mes, ano] = dataStr.split("/");
@@ -224,22 +198,16 @@ export default function App() {
         loadData();
       } catch (error) {
         console.error("Erro CSV:", error);
-        alert("Erro ao importar CSV. Verifique se o formato é suportado.");
+        alert("Erro ao importar CSV.");
       }
     };
-
     reader.readAsText(file, "windows-1252");
   };
 
-  // Botão para Resetar a Base de Dados
   const handleClearDatabase = async () => {
-    const confirmar = window.confirm(
-      "Tem certeza que deseja apagar TODOS os dados do NexusFin? Esta ação não pode ser desfeita.",
-    );
-    if (confirmar) {
+    if (window.confirm("Apagar TODOS os dados do NexusFin?")) {
       await db.transactions.clear();
       setTransactions([]);
-      alert("Base de dados resetada com sucesso!");
     }
   };
 
@@ -248,16 +216,11 @@ export default function App() {
     [transactions],
   );
 
-  // Lógica de Filtros Expandida
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;
     const agora = new Date().getTime();
     const hoje = new Date();
 
-    if (filterType === "Entradas")
-      filtered = filtered.filter((t) => t.type === "income");
-    if (filterType === "Saídas")
-      filtered = filtered.filter((t) => t.type === "expense");
     if (filterCategory !== "Todas")
       filtered = filtered.filter((t) => t.category === filterCategory);
 
@@ -267,8 +230,6 @@ export default function App() {
       filtered = filtered.filter((t) => t.timestamp >= agora - 15 * 86400000);
     else if (filterDate === "Últimos 30 dias")
       filtered = filtered.filter((t) => t.timestamp >= agora - 30 * 86400000);
-    else if (filterDate === "Últimos 90 dias")
-      filtered = filtered.filter((t) => t.timestamp >= agora - 90 * 86400000);
     else if (filterDate === "Este Mês")
       filtered = filtered.filter(
         (t) =>
@@ -281,9 +242,8 @@ export default function App() {
       );
 
     return filtered.sort((a, b) => a.timestamp - b.timestamp);
-  }, [transactions, filterType, filterDate, filterCategory]);
+  }, [transactions, filterDate, filterCategory]);
 
-  // KPIs
   const { entradas, saidas } = filteredTransactions.reduce(
     (acc, cur) => {
       if (cur.type === "income") acc.entradas += cur.amount;
@@ -297,12 +257,87 @@ export default function App() {
   const margem = entradas > 0 ? ((saldoAtual / entradas) * 100).toFixed(1) : 0;
 
   const saldoColorClass = saldoAtual < 0 ? "text-rose-500" : "text-emerald-400";
-  const marginColorClass =
-    saldoAtual < 0
-      ? "border-rose-500 border-t-rose-500"
-      : "border-slate-700 border-t-indigo-500";
 
-  // Dados para Gráficos
+  // LÓGICA DO NEXUS SCORE (0 a 100)
+  const nexusScore = useMemo(() => {
+    if (entradas === 0 && saidas === 0) return 0;
+    if (entradas === 0 && saidas > 0) return 15; // Apenas gastou
+    let score = 50; // Nota base
+    if (margem >= 20)
+      score = 95; // Poupou muito bem
+    else if (margem >= 10) score = 85;
+    else if (margem >= 0)
+      score = 70; // Empatou
+    else if (margem > -20)
+      score = 40; // Gastou um pouco a mais
+    else score = 25; // Gastou muito além da conta
+    return score;
+  }, [entradas, saidas, margem]);
+
+  const scoreColor =
+    nexusScore >= 70
+      ? "text-emerald-400"
+      : nexusScore >= 40
+        ? "text-amber-400"
+        : "text-rose-500";
+
+  const expenseCategories = useMemo(() => {
+    const data = {};
+    filteredTransactions
+      .filter((t) => t.type === "expense")
+      .forEach(
+        (tx) => (data[tx.category] = (data[tx.category] || 0) + tx.amount),
+      );
+    return Object.keys(data)
+      .map((k) => ({ name: k, value: data[k] }))
+      .sort((a, b) => b.value - a.value);
+  }, [filteredTransactions]);
+
+  // MOTOR DE INSIGHTS (Transforma dados em decisões)
+  const insights = useMemo(() => {
+    const msgs = [];
+    if (entradas === 0 && saidas === 0)
+      return [
+        {
+          type: "info",
+          text: "Conecte seu banco ou importe um extrato para gerar inteligência financeira.",
+        },
+      ];
+
+    if (saidas > entradas && entradas > 0) {
+      msgs.push({
+        type: "danger",
+        icon: "⚠️",
+        text: `Atenção: Suas despesas já superaram suas receitas em R$ ${formatMoney(Math.abs(saldoAtual))}.`,
+      });
+    } else if (margem >= 20) {
+      msgs.push({
+        type: "success",
+        icon: "🟢",
+        text: `Excelente! Você está mantendo uma margem livre de ${showValues ? margem + "%" : "••%"}.`,
+      });
+    }
+
+    if (expenseCategories.length > 0) {
+      const topCat = expenseCategories[0];
+      const percent = ((topCat.value / saidas) * 100).toFixed(0);
+      if (percent > 40) {
+        msgs.push({
+          type: "warning",
+          icon: "🟡",
+          text: `Alerta: '${topCat.name}' está consumindo ${showValues ? percent + "%" : "••%"} de todo o seu orçamento.`,
+        });
+      } else {
+        msgs.push({
+          type: "info",
+          icon: "💡",
+          text: `Maior centro de custo atual: '${topCat.name}'.`,
+        });
+      }
+    }
+    return msgs;
+  }, [entradas, saidas, margem, expenseCategories, saldoAtual, showValues]);
+
   const evolutionData = useMemo(() => {
     const dailyMap = {};
     filteredTransactions.forEach((tx) => {
@@ -318,20 +353,8 @@ export default function App() {
     return Object.values(dailyMap);
   }, [filteredTransactions]);
 
-  const expenseCategories = useMemo(() => {
-    const data = {};
-    filteredTransactions
-      .filter((t) => t.type === "expense")
-      .forEach(
-        (tx) => (data[tx.category] = (data[tx.category] || 0) + tx.amount),
-      );
-    return Object.keys(data)
-      .map((k) => ({ name: k, value: data[k] }))
-      .sort((a, b) => b.value - a.value);
-  }, [filteredTransactions]);
-
   return (
-    <div className="min-h-screen bg-[#0b1120] text-slate-200 p-4 md:p-6 font-sans selection:bg-indigo-500/30 pb-20">
+    <div className="min-h-screen bg-[#0b1120] text-slate-200 p-4 md:p-6 font-sans pb-20">
       {/* CABEÇALHO */}
       <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 border-b border-slate-800 pb-4">
         <div className="flex items-center gap-3">
@@ -354,72 +377,21 @@ export default function App() {
             <h1 className="text-2xl font-bold text-white tracking-tight">
               NEXUSFIN
             </h1>
-            <p className="text-xs text-slate-400">
-              Análise de Receita e Margem
+            <p className="text-xs text-indigo-400 font-medium tracking-wide">
+              Inteligência Financeira Ativa
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2 md:gap-3 w-full md:w-auto justify-center">
-          {/* Botão Ocultar Valores */}
           <button
             onClick={() => setShowValues(!showValues)}
-            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-md transition-all flex items-center border border-slate-700 shadow-sm"
-            title={showValues ? "Ocultar Valores" : "Mostrar Valores"}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-md transition-all border border-slate-700"
           >
-            {showValues ? (
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                />
-              </svg>
-            ) : (
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                />
-              </svg>
-            )}
+            {showValues ? "Ocultar Valores" : "Mostrar Valores"}
           </button>
-
-          {/* Botão Importar */}
-          <label className="cursor-pointer bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 shadow-sm">
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-              />
-            </svg>
-            Importar CSV
+          <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-md text-sm font-medium transition-all shadow-lg shadow-indigo-500/20">
+            + Importar CSV
             <input
               type="file"
               accept=".csv"
@@ -427,59 +399,40 @@ export default function App() {
               onChange={handleImportCSV}
             />
           </label>
-
-          {/* Botão Limpar Base */}
           <button
             onClick={handleClearDatabase}
-            className="bg-rose-900/30 text-rose-400 border border-rose-800 hover:bg-rose-600 hover:text-white px-3 py-2 rounded-md transition-all flex items-center shadow-sm"
-            title="Apagar todos os dados"
+            className="bg-rose-900/30 text-rose-400 border border-rose-800 hover:bg-rose-600 hover:text-white px-3 py-2 rounded-md"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-              />
-            </svg>
+            Limpar Dados
           </button>
         </div>
       </header>
 
-      {/* BARRA DE FERRAMENTAS E FILTROS */}
-      <div className="flex flex-col lg:flex-row justify-between items-center bg-[#111827] p-3 rounded-lg border border-slate-800 mb-6 gap-4 shadow-sm">
+      {/* FILTROS */}
+      <div className="flex flex-col lg:flex-row justify-between items-center bg-[#111827] p-3 rounded-lg border border-slate-800 mb-6 gap-4">
         <div className="flex bg-[#0f172a] rounded p-1 w-full lg:w-auto border border-slate-800">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`flex-1 px-5 py-2 rounded text-sm font-medium transition-all ${activeTab === "dashboard" ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"}`}
+            className={`flex-1 px-5 py-2 rounded text-sm font-medium transition-all ${activeTab === "dashboard" ? "bg-indigo-600 text-white" : "text-slate-400"}`}
           >
-            Painel BI
+            Visão Executiva
           </button>
           <button
             onClick={() => setActiveTab("extrato")}
-            className={`flex-1 px-5 py-2 rounded text-sm font-medium transition-all ${activeTab === "extrato" ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"}`}
+            className={`flex-1 px-5 py-2 rounded text-sm font-medium transition-all ${activeTab === "extrato" ? "bg-indigo-600 text-white" : "text-slate-400"}`}
           >
-            Base de Dados
+            Extrato Base
           </button>
         </div>
-
-        <div className="flex flex-wrap lg:flex-nowrap gap-2 w-full lg:w-auto">
+        <div className="flex gap-2 w-full lg:w-auto">
           <select
             value={filterDate}
             onChange={(e) => setFilterDate(e.target.value)}
             className="bg-[#0f172a] border border-slate-700 rounded p-2 text-sm text-slate-300 focus:border-indigo-500 outline-none flex-1"
           >
-            <option>Últimos 7 dias</option>
             <option>Últimos 15 dias</option>
             <option>Últimos 30 dias</option>
-            <option>Últimos 90 dias</option>
             <option>Este Mês</option>
-            <option>Este Ano</option>
             <option>Desde o Início</option>
           </select>
           <select
@@ -498,58 +451,78 @@ export default function App() {
 
       {activeTab === "dashboard" && (
         <div className="animate-fade-in space-y-6">
-          {/* CARDS DE KPI */}
+          {/* SESSÃO DE INSIGHTS (O DIFERENCIAL DO PITCH) */}
+          {insights.length > 0 && (
+            <div className="bg-indigo-900/10 border border-indigo-500/20 rounded-xl p-4 flex flex-col gap-2">
+              <h3 className="text-xs uppercase text-indigo-400 font-bold tracking-wider mb-1">
+                Nexus Insights
+              </h3>
+              {insights.map((insight, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-2 text-sm text-slate-300 bg-[#0f172a] p-3 rounded-lg border border-slate-800/50"
+                >
+                  <span>{insight.icon}</span>
+                  <p>{insight.text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* CARDS COM NEXUS SCORE */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-gradient-to-br from-indigo-900/40 to-[#111827] p-5 rounded-xl border border-indigo-500/20 shadow-lg">
+            {/* NOVO: NEXUS SCORE CARD */}
+            <div className="bg-[#111827] p-5 rounded-xl border border-slate-800 shadow-lg flex flex-col justify-between relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-bl-full"></div>
               <p className="text-slate-400 text-xs font-semibold uppercase mb-1">
-                Receita Operacional
+                Nexus Score
               </p>
-              <h2 className="text-2xl lg:text-3xl font-bold text-indigo-400">
+              <div className="flex items-end gap-2">
+                <h2 className={`text-4xl font-bold ${scoreColor}`}>
+                  {showValues ? nexusScore : "••"}
+                </h2>
+                <span className="text-slate-500 font-medium mb-1">/100</span>
+              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                Medidor de saúde financeira
+              </p>
+            </div>
+
+            <div className="bg-gradient-to-br from-indigo-900/20 to-[#111827] p-5 rounded-xl border border-indigo-500/10 shadow-lg">
+              <p className="text-slate-400 text-xs font-semibold uppercase mb-1">
+                Receitas
+              </p>
+              <h2 className="text-2xl font-bold text-indigo-400">
                 R$ {formatMoney(entradas)}
               </h2>
             </div>
-            <div className="bg-gradient-to-br from-rose-900/40 to-[#111827] p-5 rounded-xl border border-rose-500/20 shadow-lg">
+
+            <div className="bg-gradient-to-br from-rose-900/20 to-[#111827] p-5 rounded-xl border border-rose-500/10 shadow-lg">
               <p className="text-slate-400 text-xs font-semibold uppercase mb-1">
-                Despesas / Custos
+                Despesas
               </p>
-              <h2 className="text-2xl lg:text-3xl font-bold text-rose-400">
+              <h2 className="text-2xl font-bold text-rose-400">
                 R$ {formatMoney(saidas)}
               </h2>
             </div>
+
             <div
               className={`bg-gradient-to-br p-5 rounded-xl border shadow-lg ${saldoAtual < 0 ? "from-rose-900/20 border-rose-500/20" : "from-emerald-900/20 border-emerald-500/20"}`}
             >
               <p className="text-slate-400 text-xs font-semibold uppercase mb-1">
-                Margem / Saldo
+                Disponível
               </p>
-              <h2
-                className={`text-2xl lg:text-3xl font-bold ${saldoColorClass}`}
-              >
+              <h2 className={`text-2xl font-bold ${saldoColorClass}`}>
                 R$ {formatMoney(saldoAtual)}
               </h2>
             </div>
-            <div className="bg-[#111827] p-5 rounded-xl border border-slate-800 shadow-lg flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-xs font-semibold uppercase mb-1">
-                  % Saúde Financeira
-                </p>
-                <h2
-                  className={`text-3xl font-bold ${saldoAtual < 0 ? "text-rose-400" : "text-slate-100"}`}
-                >
-                  {showValues ? `${margem}%` : "••%"}
-                </h2>
-              </div>
-              <div
-                className={`w-12 h-12 rounded-full border-4 flex items-center justify-center transform rotate-45 ${marginColorClass}`}
-              ></div>
-            </div>
           </div>
 
-          {/* ÁREA DE GRÁFICOS */}
+          {/* GRÁFICOS */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="col-span-1 lg:col-span-2 bg-[#111827] p-5 rounded-xl border border-slate-800 shadow-lg h-[350px] lg:h-96">
+            <div className="col-span-1 lg:col-span-2 bg-[#111827] p-5 rounded-xl border border-slate-800 shadow-lg h-[350px]">
               <h3 className="text-slate-300 font-medium text-sm mb-4">
-                Evolução Mensal
+                Fluxo de Caixa no Tempo
               </h3>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={evolutionData}>
@@ -571,13 +544,13 @@ export default function App() {
                   <XAxis
                     dataKey="name"
                     stroke="#64748b"
-                    tick={{ fill: "#64748b", fontSize: 12 }}
+                    tick={{ fontSize: 12 }}
                     tickLine={false}
                     axisLine={false}
                   />
                   <YAxis
                     stroke="#64748b"
-                    tick={{ fill: "#64748b", fontSize: 12 }}
+                    tick={{ fontSize: 12 }}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={(val) =>
@@ -590,17 +563,15 @@ export default function App() {
                         ? `R$ ${val.toLocaleString("pt-BR")}`
                         : "R$ •••••"
                     }
-                    cursor={{ stroke: "#334155" }}
                     contentStyle={{
                       backgroundColor: "#0f172a",
                       border: "1px solid #1e293b",
                       borderRadius: "8px",
-                      color: "#f1f5f9",
                     }}
                   />
                   <Legend
                     iconType="circle"
-                    wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }}
+                    wrapperStyle={{ fontSize: "12px" }}
                   />
                   <Area
                     type="monotone"
@@ -622,9 +593,9 @@ export default function App() {
               </ResponsiveContainer>
             </div>
 
-            <div className="col-span-1 bg-[#111827] p-5 rounded-xl border border-slate-800 shadow-lg h-[350px] lg:h-96 flex flex-col">
+            <div className="col-span-1 bg-[#111827] p-5 rounded-xl border border-slate-800 shadow-lg h-[350px] flex flex-col">
               <h3 className="text-slate-300 font-medium text-sm mb-2">
-                Despesas por Categoria
+                Composição de Gastos
               </h3>
               {expenseCategories.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
@@ -673,63 +644,15 @@ export default function App() {
               )}
             </div>
           </div>
-
-          {/* TABELA TOP 10 */}
-          <div className="bg-[#111827] rounded-xl border border-slate-800 shadow-lg p-5">
-            <h3 className="text-slate-300 font-medium text-sm mb-4">
-              Top 10 Maiores Transações
-            </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-slate-300">
-                <thead className="bg-[#0f172a] text-slate-400 text-xs uppercase font-medium">
-                  <tr>
-                    <th className="px-4 py-3 rounded-l-md">Data</th>
-                    <th className="px-4 py-3">Descrição</th>
-                    <th className="px-4 py-3">Categoria</th>
-                    <th className="px-4 py-3 text-right rounded-r-md">Valor</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {[...filteredTransactions]
-                    .sort((a, b) => b.amount - a.amount)
-                    .slice(0, 10)
-                    .map((tx, idx) => (
-                      <tr
-                        key={idx}
-                        className="hover:bg-slate-800/30 transition-colors"
-                      >
-                        <td className="px-4 py-3 whitespace-nowrap text-slate-400">
-                          {new Date(tx.timestamp).toLocaleDateString("pt-BR")}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-slate-200">
-                          {tx.description}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="bg-slate-800 px-2 py-1 rounded text-xs border border-slate-700">
-                            {tx.category}
-                          </span>
-                        </td>
-                        <td
-                          className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${tx.type === "income" ? "text-emerald-400" : "text-rose-400"}`}
-                        >
-                          {tx.type === "income" ? "+" : "-"} R${" "}
-                          {formatMoney(tx.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       )}
 
-      {/* VISTA DE EXTRATO */}
+      {/* VISTA DE EXTRATO (Mantida inalterada da versão anterior) */}
       {activeTab === "extrato" && (
         <div className="bg-[#111827] rounded-xl border border-slate-800 overflow-hidden shadow-lg animate-fade-in">
           <div className="p-4 border-b border-slate-800 bg-[#0f172a] flex justify-between items-center">
             <h2 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">
-              Base de Dados
+              Base de Dados Bruta
             </h2>
             <span className="bg-indigo-500/20 text-indigo-300 text-xs px-3 py-1 rounded-full font-medium">
               {filteredTransactions.length} registros
