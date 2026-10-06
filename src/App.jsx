@@ -15,24 +15,29 @@ import {
   Area,
 } from "recharts";
 
-// Inicialização da Base de Dados Local
+// Inicialização da Base de Dados Local (VERSÃO 2 - Com Regras)
 const db = new Dexie("NexusFinDB_Pro");
-db.version(1).stores({
+db.version(2).stores({
   transactions:
     "++id, type, amount, description, category, date, timeString, timestamp",
+  customRules: "++id, keyword, newCategory", // Guarda as palavras-chave que o usuário ensinar
 });
 
 export default function App() {
   const [transactions, setTransactions] = useState([]);
+  const [customRules, setCustomRules] = useState([]);
   const [pluggyToken, setPluggyToken] = useState("");
   const [activeTab, setActiveTab] = useState("dashboard");
   const [showValues, setShowValues] = useState(true);
 
-  // Filtros
+  // Estado para o Modal de Edição de Categoria
+  const [editingTx, setEditingTx] = useState(null);
+  const [editCategory, setEditCategory] = useState("");
+  const [editKeyword, setEditKeyword] = useState("");
+  const [saveAsRule, setSaveAsRule] = useState(true);
+
   const [filterDate, setFilterDate] = useState("Este Mês");
   const [filterCategory, setFilterCategory] = useState("Todas");
-
-  // Calendário Personalizado
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
@@ -51,11 +56,12 @@ export default function App() {
 
   const loadData = async () => {
     const allTx = await db.transactions.toArray();
+    const rules = await db.customRules.toArray();
     allTx.sort((a, b) => b.timestamp - a.timestamp);
     setTransactions(allTx);
+    setCustomRules(rules);
   };
 
-  // AUTO-ATUALIZAÇÃO SEMPRE QUE ABRE O APP
   useEffect(() => {
     loadData();
     const onFocus = () => {
@@ -73,8 +79,18 @@ export default function App() {
     });
   };
 
-  const autoCategorize = (desc, amount) => {
+  // MOTOR DE BUSCA COM INTELIGÊNCIA APRENDIDA
+  const autoCategorize = (desc, amount, currentRules = customRules) => {
     const d = desc.toLowerCase();
+
+    // 1. Prioridade Máxima: Verifica as regras que o usuário ensinou
+    for (let rule of currentRules) {
+      if (d.includes(rule.keyword.toLowerCase())) {
+        return rule.newCategory;
+      }
+    }
+
+    // 2. Regras Padrão
     if (amount > 0) {
       if (
         d.includes("salário") ||
@@ -97,7 +113,8 @@ export default function App() {
       d.includes("ifood") ||
       d.includes("restaurante") ||
       d.includes("padaria") ||
-      d.includes("assai")
+      d.includes("assai") ||
+      d.includes("ducido")
     )
       return "Alimentação";
     if (
@@ -105,7 +122,8 @@ export default function App() {
       d.includes("uber") ||
       d.includes("99") ||
       d.includes("gasolina") ||
-      d.includes("estacionamento")
+      d.includes("estacionamento") ||
+      d.includes("combustível")
     )
       return "Transporte";
     if (
@@ -139,6 +157,58 @@ export default function App() {
     return "Outros Gastos";
   };
 
+  // FUNÇÃO DE GRAVAR A APRENDIZAGEM DO USUÁRIO
+  const saveCategoryEdit = async () => {
+    if (!editCategory.trim()) return;
+
+    try {
+      // 1. Se o utilizador quiser que o NexusFin aprenda a regra
+      if (saveAsRule && editKeyword.trim()) {
+        const ruleKeyword = editKeyword.trim().toLowerCase();
+
+        // Guarda a nova regra no banco de dados
+        await db.customRules.add({
+          keyword: ruleKeyword,
+          newCategory: editCategory,
+        });
+
+        // Atualiza todas as transações ANTIGAS que tenham esta palavra
+        const allTx = await db.transactions.toArray();
+        const updates = allTx.filter((t) =>
+          t.description.toLowerCase().includes(ruleKeyword),
+        );
+
+        for (let tx of updates) {
+          await db.transactions.update(tx.id, { category: editCategory });
+        }
+        alert(
+          `O NexusFin aprendeu! ${updates.length} transação(ões) atualizada(s) para "${editCategory}".`,
+        );
+      } else {
+        // Apenas edita a transação única
+        await db.transactions.update(editingTx.id, { category: editCategory });
+      }
+
+      setEditingTx(null); // Fecha o modal
+      loadData(); // Recarrega os dados
+    } catch (error) {
+      console.error("Erro ao guardar edição:", error);
+      alert("Erro ao editar a categoria.");
+    }
+  };
+
+  // Preenche a sugestão da palavra-chave quando o utilizador clica em editar
+  const openEditModal = (tx) => {
+    setEditingTx(tx);
+    setEditCategory(tx.category !== "Outros Gastos" ? tx.category : "");
+
+    // Tenta adivinhar a palavra-chave (Ex: de "Compra no débito|Petrogarca" tira "Petrogarca")
+    const parts = tx.description.split("|");
+    const suggestion =
+      parts.length > 1 ? parts[parts.length - 1].trim() : tx.description;
+    setEditKeyword(suggestion);
+  };
+
   const handleImportCSV = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -154,9 +224,10 @@ export default function App() {
         const isBancoDoBrasil =
           lines[0].includes("Tipo Lançamento") ||
           lines[0].includes("Lançamento");
-
-        // Deteta automaticamente se o ficheiro usa vírgulas ou ponto e vírgula (Excel)
         const separator = lines[0].includes(";") ? ";" : ",";
+
+        // Carrega regras atuais antes de importar
+        const currentRules = await db.customRules.toArray();
 
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i];
@@ -187,18 +258,14 @@ export default function App() {
           if (!valorStr) continue;
 
           let valorTratado = valorStr;
-          if (valorTratado.includes(",")) {
+          if (valorTratado.includes(","))
             valorTratado = valorTratado.replace(/\./g, "").replace(",", ".");
-          }
           const valor = parseFloat(valorTratado);
           if (isNaN(valor) || valor === 0) continue;
 
           let dia, mes, ano;
-          if (dataStr.includes("/")) {
-            [dia, mes, ano] = dataStr.split("/");
-          } else if (dataStr.includes("-")) {
-            [ano, mes, dia] = dataStr.split("-");
-          }
+          if (dataStr.includes("/")) [dia, mes, ano] = dataStr.split("/");
+          else if (dataStr.includes("-")) [ano, mes, dia] = dataStr.split("-");
           if (!ano || !mes || !dia) continue;
 
           const txDate = new Date(ano, mes - 1, dia);
@@ -207,7 +274,7 @@ export default function App() {
             type: valor < 0 ? "expense" : "income",
             amount: Math.abs(valor),
             description: descricao,
-            category: autoCategorize(descricao, valor),
+            category: autoCategorize(descricao, valor, currentRules), // Usa as regras ensinadas
             date: txDate.toISOString(),
             timeString: isBancoDoBrasil ? "CSV BB" : "CSV Padrão",
             timestamp: txDate.getTime(),
@@ -229,9 +296,15 @@ export default function App() {
   };
 
   const handleClearDatabase = async () => {
-    if (window.confirm("Apagar TODOS os dados do NexusFin?")) {
+    if (
+      window.confirm(
+        "Isto apagará também as regras de inteligência criadas. Tem a certeza?",
+      )
+    ) {
       await db.transactions.clear();
+      await db.customRules.clear();
       setTransactions([]);
+      setCustomRules([]);
     }
   };
 
@@ -244,9 +317,7 @@ export default function App() {
       const data = await response.json();
       setPluggyToken(data.accessToken);
     } catch (error) {
-      alert(
-        "ERRO: Não foi possível ligar ao servidor Render. " + error.message,
-      );
+      alert("ERRO: Não foi possível ligar ao servidor Render.");
     }
   };
 
@@ -264,14 +335,14 @@ export default function App() {
       filtered = filtered.filter((t) => t.category === filterCategory);
 
     if (filterDate === "Personalizado") {
-      if (startDate) {
-        const startTimestamp = new Date(startDate + "T00:00:00").getTime();
-        filtered = filtered.filter((t) => t.timestamp >= startTimestamp);
-      }
-      if (endDate) {
-        const endTimestamp = new Date(endDate + "T23:59:59").getTime();
-        filtered = filtered.filter((t) => t.timestamp <= endTimestamp);
-      }
+      if (startDate)
+        filtered = filtered.filter(
+          (t) => t.timestamp >= new Date(startDate + "T00:00:00").getTime(),
+        );
+      if (endDate)
+        filtered = filtered.filter(
+          (t) => t.timestamp <= new Date(endDate + "T23:59:59").getTime(),
+        );
     } else {
       if (filterDate === "Últimos 15 dias")
         filtered = filtered.filter((t) => t.timestamp >= agora - 15 * 86400000);
@@ -343,40 +414,31 @@ export default function App() {
         {
           type: "info",
           icon: "🔍",
-          text: "Importe um extrato CSV (do Excel, Nubank ou BB) ou conecte seu banco.",
+          text: "Importe um extrato CSV ou conecte seu banco.",
         },
       ];
-
-    if (saidas > entradas && entradas > 0) {
+    if (saidas > entradas && entradas > 0)
       msgs.push({
         type: "danger",
         icon: "⚠️",
         text: `Atenção: Suas despesas já superaram suas receitas em R$ ${formatMoney(Math.abs(saldoAtual))}.`,
       });
-    } else if (margem >= 20) {
+    else if (margem >= 20)
       msgs.push({
         type: "success",
         icon: "🟢",
         text: `Excelente! Você está poupando ${showValues ? margem + "%" : "••%"} das suas receitas.`,
       });
-    }
 
     if (expenseCategories.length > 0) {
       const topCat = expenseCategories[0];
       const percent = ((topCat.value / saidas) * 100).toFixed(0);
-      if (percent > 40) {
+      if (percent > 40)
         msgs.push({
           type: "warning",
           icon: "🟡",
-          text: `Alerta de Concentração: '${topCat.name}' representa ${showValues ? percent + "%" : "••%"} das despesas.`,
+          text: `Alerta: '${topCat.name}' representa ${showValues ? percent + "%" : "••%"} das despesas.`,
         });
-      } else {
-        msgs.push({
-          type: "info",
-          icon: "💡",
-          text: `Seu principal centro de custo atual é: '${topCat.name}'.`,
-        });
-      }
     }
     return msgs;
   }, [entradas, saidas, margem, expenseCategories, saldoAtual, showValues]);
@@ -397,7 +459,85 @@ export default function App() {
   }, [filteredTransactions]);
 
   return (
-    <div className="min-h-screen bg-[#0b1120] text-slate-200 p-4 md:p-6 font-sans pb-20">
+    <div className="min-h-screen bg-[#0b1120] text-slate-200 p-4 md:p-6 font-sans pb-20 relative">
+      {/* MODAL DE EDIÇÃO DE CATEGORIA */}
+      {editingTx && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111827] border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-2">
+              Editar Categoria
+            </h3>
+            <p className="text-sm text-slate-400 mb-4 break-words">
+              Transação:{" "}
+              <span className="text-white font-medium">
+                {editingTx.description}
+              </span>
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  Nova Categoria (Ex: Combustível, Saúde)
+                </label>
+                <input
+                  type="text"
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="w-full bg-[#0f172a] border border-slate-600 rounded p-2.5 text-white focus:border-indigo-500 outline-none"
+                  placeholder="Nome da categoria..."
+                />
+              </div>
+
+              <div className="bg-indigo-900/10 border border-indigo-500/20 rounded-lg p-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={saveAsRule}
+                    onChange={(e) => setSaveAsRule(e.target.checked)}
+                    className="mt-1 w-4 h-4 rounded text-indigo-500 focus:ring-indigo-500 bg-slate-800 border-slate-600"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-white block">
+                      Aprender esta regra
+                    </span>
+                    <span className="text-xs text-slate-400 block mt-0.5">
+                      O NexusFin vai categorizar automaticamente gastos futuros
+                      com esta palavra:
+                    </span>
+                  </div>
+                </label>
+
+                {saveAsRule && (
+                  <input
+                    type="text"
+                    value={editKeyword}
+                    onChange={(e) => setEditKeyword(e.target.value)}
+                    className="w-full mt-3 bg-[#0f172a] border border-slate-600 rounded p-2 text-sm text-white outline-none"
+                    placeholder="Palavra-chave (Ex: petrogarca)"
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setEditingTx(null)}
+                className="px-4 py-2 rounded text-sm text-slate-300 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveCategoryEdit}
+                className="px-4 py-2 rounded text-sm bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-lg"
+              >
+                Salvar Categoria
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CABEÇALHO */}
       <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 border-b border-slate-800 pb-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/20">
@@ -435,7 +575,7 @@ export default function App() {
 
           <button
             onClick={requestPluggyToken}
-            className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white px-4 py-2 rounded-md text-sm font-medium transition-all shadow-lg flex items-center gap-2"
+            className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2"
           >
             <svg
               className="w-4 h-4"
@@ -453,7 +593,7 @@ export default function App() {
             Conectar Banco
           </button>
 
-          <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-md text-sm font-medium transition-all shadow-lg shadow-indigo-500/20">
+          <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-md text-sm font-medium transition-all shadow-lg">
             + Importar CSV
             <input
               type="file"
@@ -472,6 +612,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* FILTROS */}
       <div className="flex flex-col lg:flex-row justify-between items-center bg-[#111827] p-3 rounded-lg border border-slate-800 mb-6 gap-4">
         <div className="flex bg-[#0f172a] rounded p-1 w-full lg:w-auto border border-slate-800">
           <button
@@ -503,13 +644,12 @@ export default function App() {
           </select>
 
           {filterDate === "Personalizado" && (
-            <div className="flex items-center gap-2 bg-[#0f172a] p-1 rounded border border-slate-700 animate-fade-in">
+            <div className="flex items-center gap-2 bg-[#0f172a] p-1 rounded border border-slate-700">
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 className="bg-transparent text-slate-300 text-sm outline-none px-1"
-                title="Data Inicial"
               />
               <span className="text-slate-500">até</span>
               <input
@@ -517,7 +657,6 @@ export default function App() {
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
                 className="bg-transparent text-slate-300 text-sm outline-none px-1"
-                title="Data Final"
               />
             </div>
           )}
@@ -567,11 +706,7 @@ export default function App() {
                 </h2>
                 <span className="text-slate-500 font-medium mb-1">/100</span>
               </div>
-              <p className="text-xs text-slate-500 mt-2">
-                Medidor de saúde financeira
-              </p>
             </div>
-
             <div className="bg-gradient-to-br from-indigo-900/20 to-[#111827] p-5 rounded-xl border border-indigo-500/10 shadow-lg">
               <p className="text-slate-400 text-xs font-semibold uppercase mb-1">
                 Receitas
@@ -580,7 +715,6 @@ export default function App() {
                 R$ {formatMoney(entradas)}
               </h2>
             </div>
-
             <div className="bg-gradient-to-br from-rose-900/20 to-[#111827] p-5 rounded-xl border border-rose-500/10 shadow-lg">
               <p className="text-slate-400 text-xs font-semibold uppercase mb-1">
                 Despesas
@@ -589,7 +723,6 @@ export default function App() {
                 R$ {formatMoney(saidas)}
               </h2>
             </div>
-
             <div
               className={`bg-gradient-to-br p-5 rounded-xl border shadow-lg ${saldoAtual < 0 ? "from-rose-900/20 border-rose-500/20" : "from-emerald-900/20 border-emerald-500/20"}`}
             >
@@ -744,14 +877,17 @@ export default function App() {
             {filteredTransactions.map((tx) => (
               <div
                 key={tx.id}
-                className="p-3 px-5 hover:bg-slate-800/50 flex flex-col sm:flex-row sm:justify-between sm:items-center transition-colors"
+                className="p-3 px-5 hover:bg-slate-800/50 flex flex-col sm:flex-row sm:justify-between sm:items-center transition-colors group"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 w-full sm:w-auto">
                   <div
-                    className={`w-2 h-2 rounded-full ${tx.type === "income" ? "bg-emerald-500" : "bg-rose-500"}`}
+                    className={`w-2 h-2 rounded-full flex-shrink-0 ${tx.type === "income" ? "bg-emerald-500" : "bg-rose-500"}`}
                   ></div>
-                  <div>
-                    <p className="text-slate-200 font-medium text-sm">
+                  <div className="overflow-hidden">
+                    <p
+                      className="text-slate-200 font-medium text-sm truncate"
+                      title={tx.description}
+                    >
                       {tx.description}
                     </p>
                     <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
@@ -759,12 +895,35 @@ export default function App() {
                         {new Date(tx.timestamp).toLocaleDateString("pt-BR")}
                       </span>
                       <span className="w-1 h-1 bg-slate-700 rounded-full"></span>
-                      <span>{tx.category}</span>
+
+                      {/* BOTÃO DE EDIÇÃO DE CATEGORIA */}
+                      <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded flex items-center gap-1 group-hover:border-indigo-500/50 transition-colors">
+                        {tx.category}
+                        <button
+                          onClick={() => openEditModal(tx)}
+                          className="text-slate-400 hover:text-indigo-400 ml-1 p-0.5"
+                          title="Editar Categoria"
+                        >
+                          <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                            />
+                          </svg>
+                        </button>
+                      </span>
                     </p>
                   </div>
                 </div>
                 <div
-                  className={`font-medium text-sm text-right mt-2 sm:mt-0 ${tx.type === "income" ? "text-emerald-400" : "text-rose-400"}`}
+                  className={`font-medium text-sm text-right mt-2 sm:mt-0 whitespace-nowrap ${tx.type === "income" ? "text-emerald-400" : "text-rose-400"}`}
                 >
                   {tx.type === "income" ? "+" : "-"} R$ {formatMoney(tx.amount)}
                 </div>
@@ -784,19 +943,21 @@ export default function App() {
               const response = await fetch(
                 `https://nexus-backend-fv9d.onrender.com/api/transactions/${itemData.item.id}`,
               );
-              if (!response.ok)
-                throw new Error(`Falha no servidor: ${response.status}`);
+              if (!response.ok) throw new Error(`Falha no servidor`);
               const data = await response.json();
-
               const txList = data.results || data;
-              if (!txList || !Array.isArray(txList))
-                throw new Error("Lista inválida.");
+
+              const currentRules = await db.customRules.toArray();
 
               const transactionsToSave = txList.map((tx) => ({
                 type: tx.amount > 0 ? "income" : "expense",
                 amount: Math.abs(tx.amount),
                 description: tx.description || "Transação Bancária",
-                category: autoCategorize(tx.description || "", tx.amount),
+                category: autoCategorize(
+                  tx.description || "",
+                  tx.amount,
+                  currentRules,
+                ),
                 date: new Date(tx.date).toISOString(),
                 timeString: "Pluggy",
                 timestamp: new Date(tx.date).getTime(),
@@ -806,15 +967,11 @@ export default function App() {
               setPluggyToken("");
               loadData();
             } catch (e) {
-              console.error("Erro na importação:", e);
               alert(`Erro: ${e.message}`);
               setPluggyToken("");
             }
           }}
-          onError={(error) => {
-            console.error("Erro na Pluggy:", error);
-            setPluggyToken("");
-          }}
+          onError={() => setPluggyToken("")}
           onClose={() => setPluggyToken("")}
         />
       )}
