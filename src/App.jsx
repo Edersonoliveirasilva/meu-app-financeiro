@@ -34,7 +34,22 @@ export default function App() {
     setTransactions(allTx);
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { 
+    // 1. Carrega os dados na primeira vez que abre
+    loadData(); 
+
+    // 2. Mágica: Cria um detetor que percebe quando você volta para o app
+    const onFocus = () => {
+      console.log("App focado! Atualizando dados automaticamente...");
+      loadData();
+    };
+
+    // 3. Ativa o detetor na janela do seu celular/computador
+    window.addEventListener('focus', onFocus);
+    
+    // 4. Limpeza de segurança
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   const formatMoney = (value) => {
     if (!showValues) return '••••••';
